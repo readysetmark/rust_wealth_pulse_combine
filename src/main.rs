@@ -21,12 +21,14 @@ enum TransactionStatus {
 /// Gets the current line number.
 fn line_number<I>(input: State<I>) -> ParseResult<i32, I>
 where I: Stream<Item=char> {
-	Result::Ok((input.position.line, Consumed::Empty(input)))
+	Ok((input.position.line, Consumed::Empty(input)))
 }
 
 #[test]
 fn line_number_test() {
-	let (line_num, remaining_input) = parser(line_number).parse("hello").unwrap();
+	let (line_num, remaining_input) = parser(line_number)
+		.parse("hello")
+		.unwrap();
 	assert_eq!(line_num, 1);
 	assert_eq!(remaining_input, "hello");
 }
@@ -42,10 +44,11 @@ fn two_digits_to_int((x, y): (char, char)) -> i32 {
 
 #[test]
 fn two_digits_to_int_test() {
-	let two_digits = ('2', '7');
-	let result = two_digits_to_int(two_digits);
+	let result = two_digits_to_int(('2', '7'));
 	assert_eq!(result, 27);
 }
+
+
 
 /// Wrapped parser for parsing two digits. e.g. 17
 fn two_digits<I>() -> FnParser<I, fn (State<I>) -> ParseResult<i32, I>>
@@ -61,9 +64,10 @@ where I: Stream<Item=char> {
 
 #[test]
 fn two_digits_test() {
-	let parse_result : Result<(i32, &str), ParseError<&str>> = two_digits().parse("09");
-	let (result, _remaining_input) = parse_result.unwrap();
-	assert_eq!(result, 9);
+	let result = two_digits()
+		.parse("09")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(9));
 }
 
 
@@ -84,11 +88,14 @@ where I: Stream<Item=char> {
 
 #[test]
 fn date_test() {
-	let parse_result : Result<(Date, &str), ParseError<&str>> = parser(date).parse("2015-10-17");
-	let (result, _remaining_input) = parse_result.unwrap();
-	assert_eq!(result.year, 2015);
-	assert_eq!(result.month, 10);
-	assert_eq!(result.day, 17);
+	let result = parser(date)
+		.parse("2015-10-17")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Date {
+		year: 2015,
+		month: 10,
+		day: 17
+	}));
 }
 
 
