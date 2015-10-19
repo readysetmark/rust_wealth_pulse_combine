@@ -11,6 +11,11 @@ struct Date {
 	day: i32
 }
 
+#[derive(PartialEq, Debug)]
+enum TransactionStatus {
+	Cleared,
+	Uncleared
+}
 
 
 /// Gets the current line number.
@@ -47,8 +52,6 @@ fn two_digits<I>() -> FnParser<I, fn (State<I>) -> ParseResult<i32, I>>
 where I: Stream<Item=char> {
     fn two_digits_<I>(input: State<I>) -> ParseResult<i32, I>
     where I: Stream<Item=char> {
-    	println!("State.position = {:?}", input.position);
-
         (digit(), digit())
             .map(two_digits_to_int)
             .parse_state(input)
@@ -86,6 +89,33 @@ fn date_test() {
 	assert_eq!(result.year, 2015);
 	assert_eq!(result.month, 10);
 	assert_eq!(result.day, 17);
+}
+
+
+
+/// Parses transaction status token. e.g. * (cleared) or ! (uncleared)
+fn transaction_status<I>(input: State<I>) -> ParseResult<TransactionStatus, I>
+where I: Stream<Item=char> {
+	char('*')
+		.map(|_| TransactionStatus::Cleared)
+		.or(char('!').map(|_| TransactionStatus::Uncleared))
+		.parse_state(input)
+}
+
+#[test]
+fn transaction_status_cleared() {
+	let result = parser(transaction_status)
+		.parse("*")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(TransactionStatus::Cleared));
+}
+
+#[test]
+fn transaction_status_uncleared() {
+	let result = parser(transaction_status)
+		.parse("!")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(TransactionStatus::Uncleared));
 }
 
 
