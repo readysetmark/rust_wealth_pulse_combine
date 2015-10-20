@@ -1,6 +1,7 @@
 extern crate combine;
 
-use combine::{char, digit, many, parser, Parser, ParserExt, ParseResult, ParseError};
+use combine::{char, digit, many, parser, satisfy, Parser, ParserExt,
+	ParseResult, ParseError};
 use combine::combinator::FnParser;
 use combine::primitives::{Consumed, State, Stream};
 
@@ -123,6 +124,40 @@ fn transaction_status_uncleared() {
 		.parse("!")
 		.map(|x| x.0);
 	assert_eq!(result, Ok(TransactionStatus::Uncleared));
+}
+
+
+
+/// Parses transaction code. e.g. (cheque #802)
+fn code<I>(input: State<I>) -> ParseResult<String, I>
+where I: Stream<Item=char> {
+	(char('('), many(satisfy(|c| c != '\r' && c != '\n' && c != ')')), char(')'))
+		.map(|(_, code, _)| code)
+		.parse_state(input)
+}
+
+#[test]
+fn empty_code() {
+	let result = parser(code)
+		.parse("()")
+		.map(|x| x.0);
+	assert!(result.unwrap().is_empty());
+}
+
+#[test]
+fn short_code() {
+	let result = parser(code)
+		.parse("(89)")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("89".to_string()));
+}
+
+#[test]
+fn long_code() {
+	let result = parser(code)
+		.parse("(conf# abc-123-DEF)")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("conf# abc-123-DEF".to_string()));
 }
 
 
