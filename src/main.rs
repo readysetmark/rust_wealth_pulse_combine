@@ -1,9 +1,21 @@
 extern crate combine;
 
-use combine::{char, digit, many, many1, parser, satisfy, Parser, ParserExt,
-	ParseResult, ParseError};
+use combine::{char, digit, many, many1, optional, parser, satisfy,
+	Parser, ParserExt, ParseResult, ParseError};
 use combine::combinator::FnParser;
 use combine::primitives::{Consumed, State, Stream};
+
+#[derive(PartialEq, Debug)]
+enum WhitespaceIndicator {
+	Whitespace,
+	NoWhitespace
+}
+
+#[derive(PartialEq, Debug)]
+enum TransactionStatus {
+	Cleared,
+	Uncleared
+}
 
 #[derive(PartialEq, Debug)]
 struct Date {
@@ -13,10 +25,15 @@ struct Date {
 }
 
 #[derive(PartialEq, Debug)]
-enum TransactionStatus {
-	Cleared,
-	Uncleared
+struct Header {
+	line_number: i32,
+	date: Date,
+	status: TransactionStatus,
+	code: Option<String>,
+	payee: String,
+	comment: Option<String>
 }
+
 
 
 /// Gets the current line number.
@@ -32,6 +49,43 @@ fn line_number_test() {
 		.unwrap();
 	assert_eq!(line_num, 1);
 	assert_eq!(remaining_input, "hello");
+}
+
+
+
+/// Parses at least one whitespace character (space or tab).
+fn mandatory_whitespace<I>(input: State<I>) -> ParseResult<WhitespaceIndicator, I>
+where I: Stream<Item=char> {
+	many1::<String, _>(satisfy(|c| c == ' ' || c == '\t'))
+		.map(|_| WhitespaceIndicator::Whitespace)
+		.parse_state(input)
+}
+
+#[test]
+fn empty_mandatory_whitespace_is_error()
+{
+	let result = parser(mandatory_whitespace)
+		.parse("")
+		.map(|x| x.0);
+	assert!(result.is_err());
+}
+
+#[test]
+fn mandatory_whitespace_space()
+{
+	let result = parser(mandatory_whitespace)
+		.parse(" ")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(WhitespaceIndicator::Whitespace));
+}
+
+#[test]
+fn mandatory_whitespace_tab()
+{
+	let result = parser(mandatory_whitespace)
+		.parse("\t")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(WhitespaceIndicator::Whitespace));
 }
 
 
@@ -102,7 +156,7 @@ fn date_test() {
 
 
 /// Parses transaction status token. e.g. * (cleared) or ! (uncleared)
-fn transaction_status<I>(input: State<I>) -> ParseResult<TransactionStatus, I>
+fn status<I>(input: State<I>) -> ParseResult<TransactionStatus, I>
 where I: Stream<Item=char> {
 	char('*')
 		.map(|_| TransactionStatus::Cleared)
@@ -111,16 +165,16 @@ where I: Stream<Item=char> {
 }
 
 #[test]
-fn transaction_status_cleared() {
-	let result = parser(transaction_status)
+fn status_cleared() {
+	let result = parser(status)
 		.parse("*")
 		.map(|x| x.0);
 	assert_eq!(result, Ok(TransactionStatus::Cleared));
 }
 
 #[test]
-fn transaction_status_uncleared() {
-	let result = parser(transaction_status)
+fn status_uncleared() {
+	let result = parser(status)
 		.parse("!")
 		.map(|x| x.0);
 	assert_eq!(result, Ok(TransactionStatus::Uncleared));
@@ -234,6 +288,108 @@ fn comment_with_leading_space() {
 		.parse("; Comment")
 		.map(|x| x.0);
 	assert_eq!(result, Ok(" Comment".to_string()));
+}
+
+
+
+/// Parses a transaction header
+fn header<I>(input: State<I>) -> ParseResult<Header,I>
+where I: Stream<Item=char> {
+	(
+		parser(line_number),
+		parser(date).skip(parser(mandatory_whitespace)),
+		parser(status).skip(parser(mandatory_whitespace)),
+		optional(parser(code).skip(parser(mandatory_whitespace))),
+		parser(payee),
+		optional(parser(comment))
+	)
+		.map(|(line_num, date, status, code, payee, comment)| {
+			Header {
+				line_number: line_num,
+				date: date,
+				status: status,
+				code: code,
+				payee: payee,
+				comment: comment
+			}
+		})
+		.parse_state(input)
+}
+
+#[test]
+fn full_header() {
+	let result = parser(header)
+		.parse("2015-10-20 * (conf# abc-123) Payee ;Comment")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Header {
+		line_number: 1,
+		date: Date {
+			year: 2015,
+			month: 10,
+			day: 20
+		},
+		status: TransactionStatus::Cleared,
+		code: Some("conf# abc-123".to_string()),
+		payee: "Payee ".to_string(),
+		comment: Some("Comment".to_string())
+	}));
+}
+
+#[test]
+fn header_with_code_and_no_comment() {
+	let result = parser(header)
+		.parse("2015-10-20 ! (conf# abc-123) Payee")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Header {
+		line_number: 1,
+		date: Date {
+			year: 2015,
+			month: 10,
+			day: 20
+		},
+		status: TransactionStatus::Uncleared,
+		code: Some("conf# abc-123".to_string()),
+		payee: "Payee".to_string(),
+		comment: None
+	}));
+}
+
+#[test]
+fn header_with_comment_and_no_code() {
+	let result = parser(header)
+		.parse("2015-10-20 * Payee ;Comment")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Header {
+		line_number: 1,
+		date: Date {
+			year: 2015,
+			month: 10,
+			day: 20
+		},
+		status: TransactionStatus::Cleared,
+		code: None,
+		payee: "Payee ".to_string(),
+		comment: Some("Comment".to_string())
+	}));
+}
+
+#[test]
+fn header_with_no_code_or_comment() {
+	let result = parser(header)
+		.parse("2015-10-20 * Payee")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Header {
+		line_number: 1,
+		date: Date {
+			year: 2015,
+			month: 10,
+			day: 20
+		},
+		status: TransactionStatus::Cleared,
+		code: None,
+		payee: "Payee".to_string(),
+		comment: None
+	}));
 }
 
 
