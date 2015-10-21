@@ -204,6 +204,40 @@ fn long_payee() {
 
 
 
+/// Parses a comment.
+fn comment<I>(input: State<I>) -> ParseResult<String,I>
+where I: Stream<Item=char> {
+	(char(';'), many(satisfy(|c| c != '\r' && c != '\n')))
+		.map(|(_, payee)| payee)
+		.parse_state(input)
+}
+
+#[test]
+fn empty_comment() {
+	let result = parser(comment)
+		.parse(";")
+		.map(|x| x.0);
+	assert!(result.unwrap().is_empty());
+}
+
+#[test]
+fn comment_no_leading_space() {
+	let result = parser(comment)
+		.parse(";Comment")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("Comment".to_string()));
+}
+
+#[test]
+fn comment_with_leading_space() {
+	let result = parser(comment)
+		.parse("; Comment")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(" Comment".to_string()));
+}
+
+
+
 fn main() {
 	let result : Result<(String, &str), ParseError<&str>> = parser(payee).parse("");
 
