@@ -1,6 +1,6 @@
 extern crate combine;
 
-use combine::{char, digit, many, parser, satisfy, Parser, ParserExt,
+use combine::{char, digit, many, many1, parser, satisfy, Parser, ParserExt,
 	ParseResult, ParseError};
 use combine::combinator::FnParser;
 use combine::primitives::{Consumed, State, Stream};
@@ -162,8 +162,52 @@ fn long_code() {
 
 
 
+/// Parses a payee.
+fn payee<I>(input: State<I>) -> ParseResult<String,I>
+where I: Stream<Item=char> {
+	many1(satisfy(|c| c != ';' && c != '\n' && c != '\r'))
+		.parse_state(input)
+}
+
+#[test]
+fn empty_payee_is_error() {
+	let result = parser(payee)
+		.parse("")
+		.map(|x| x.0);
+	assert!(result.is_err());
+}
+
+#[test]
+fn single_character_payee() {
+	let result = parser(payee)
+		.parse("Z")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("Z".to_string()));
+}
+
+#[test]
+fn short_payee() {
+	let result = parser(payee)
+		.parse("WonderMart")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("WonderMart".to_string()));
+}
+
+#[test]
+fn long_payee() {
+	let result = parser(payee)
+		.parse("WonderMart - groceries, kitchen supplies (pot), light bulbs")
+		.map(|x| x.0);
+	assert_eq!(result,
+		Ok("WonderMart - groceries, kitchen supplies (pot), light bulbs".to_string()));
+}
+
+
+
 fn main() {
-	let result : Result<(Date, &str), ParseError<&str>> = parser(date).parse("2015-10-17");
+	let result : Result<(String, &str), ParseError<&str>> = parser(payee).parse("");
+
+	println!("{:?}", result);
 
 	match result {
 		Ok((date, remaining_input)) => {
