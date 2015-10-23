@@ -1,7 +1,7 @@
 extern crate combine;
 
-use combine::{char, digit, many, many1, optional, parser, satisfy,
-	Parser, ParserExt, ParseResult, ParseError};
+use combine::{alpha_num, char, digit, many, many1, optional, parser, satisfy,
+	sep_by1, Parser, ParserExt, ParseResult, ParseError};
 use combine::combinator::FnParser;
 use combine::primitives::{Consumed, State, Stream};
 
@@ -390,6 +390,60 @@ fn header_with_no_code_or_comment() {
 		payee: "Payee".to_string(),
 		comment: None
 	}));
+}
+
+
+
+/// Parses a sub-account name, which must be alphanumeric.
+fn sub_account<I>(input: State<I>) -> ParseResult<String,I>
+where I: Stream<Item=char> {
+	many1(alpha_num())
+		.parse_state(input)
+}
+
+#[test]
+fn sub_account_alphanumeric() {
+	let result = parser(sub_account)
+		.parse("AZaz09")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("AZaz09".to_string()));
+}
+
+#[test]
+fn sub_account_can_start_with_digits() {
+	let result = parser(sub_account)
+		.parse("123abcABC")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("123abcABC".to_string()));
+}
+
+
+
+/// Parses an account, made up of sub-accounts separated by colons.
+fn account<I>(input: State<I>) -> ParseResult<Vec<String>,I>
+where I: Stream<Item=char> {
+	sep_by1(parser(sub_account), char(':'))
+		.parse_state(input)
+}
+
+#[test]
+fn account_multiple_level() {
+	let result = parser(account)
+		.parse("Expenses:Food:Groceries")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(vec![
+		"Expenses".to_string(),
+		"Food".to_string(),
+		"Groceries".to_string()
+	]));
+}
+
+#[test]
+fn account_single_level() {
+	let result = parser(account)
+		.parse("Expenses")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(vec!["Expenses".to_string()]));
 }
 
 
