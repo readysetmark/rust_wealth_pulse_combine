@@ -18,6 +18,12 @@ enum TransactionStatus {
 }
 
 #[derive(PartialEq, Debug)]
+enum Symbol {
+	Quoted(String),
+	Unquoted(String)
+}
+
+#[derive(PartialEq, Debug)]
 struct Date {
 	year: i32,
 	month: i32,
@@ -509,6 +515,84 @@ fn quantity_positive_with_fractional_part()
 		.parse("24521.793")
 		.map(|x| x.0);
 	assert_eq!(result, Ok("24521.793".to_string()));
+}
+
+
+
+/// Parses a quoted symbol
+fn quoted_symbol<I>(input: State<I>) -> ParseResult<Symbol, I>
+where I: Stream<Item=char> {
+	(char('\"'), many1(satisfy(|c| c != '\"' && c != '\r' && c != '\n')), char('\"'))
+		.map(|(_, symbol, _)| Symbol::Quoted(symbol))
+		.parse_state(input)
+}
+
+#[test]
+fn quoted_symbol_test() {
+	let result = parser(quoted_symbol)
+		.parse("\"MUTF2351\"")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Symbol::Quoted("MUTF2351".to_string())));
+}
+
+
+
+/// Parses an unquoted symbol
+fn unquoted_symbol<I>(input: State<I>) -> ParseResult<Symbol, I>
+where I: Stream<Item=char> {
+	many1(satisfy(|c| "-0123456789; \"\t\r\n".chars().all(|s| s != c)))
+		.map(|symbol| Symbol::Unquoted(symbol))
+		.parse_state(input)
+}
+
+#[test]
+fn unquoted_symbol_just_symbol() {
+	let result = parser(unquoted_symbol)
+		.parse("$")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Symbol::Unquoted("$".to_string())));
+}
+
+#[test]
+fn unquoted_symbol_symbol_and_letters() {
+	let result = parser(unquoted_symbol)
+		.parse("US$")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Symbol::Unquoted("US$".to_string())));
+}
+
+#[test]
+fn unquoted_symbol_just_letters() {
+	let result = parser(unquoted_symbol)
+		.parse("AAPL")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Symbol::Unquoted("AAPL".to_string())));
+}
+
+
+
+/// Parses a quoted or unquoted symbol
+fn symbol<I>(input: State<I>) -> ParseResult<Symbol, I>
+where I: Stream<Item=char> {
+	parser(quoted_symbol)
+		.or(parser(unquoted_symbol))
+		.parse_state(input)
+}
+
+#[test]
+fn symbol_unquoted_test() {
+	let result = parser(symbol)
+		.parse("$")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Symbol::Unquoted("$".to_string())));
+}
+
+#[test]
+fn symbol_quoted_test() {
+	let result = parser(symbol)
+		.parse("\"MUTF2351\"")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Symbol::Quoted("MUTF2351".to_string())));
 }
 
 
