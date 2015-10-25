@@ -12,15 +12,15 @@ enum WhitespaceIndicator {
 }
 
 #[derive(PartialEq, Debug)]
-enum TransactionStatus {
-	Cleared,
-	Uncleared
+enum SymbolPosition {
+	Left,
+	Right
 }
 
 #[derive(PartialEq, Debug)]
-enum Symbol {
-	Quoted(String),
-	Unquoted(String)
+enum TransactionStatus {
+	Cleared,
+	Uncleared
 }
 
 #[derive(PartialEq, Debug)]
@@ -38,6 +38,12 @@ struct Header {
 	code: Option<String>,
 	payee: String,
 	comment: Option<String>
+}
+
+#[derive(PartialEq, Debug)]
+struct Symbol {
+	value: String,
+	quoted: bool
 }
 
 
@@ -523,7 +529,10 @@ fn quantity_positive_with_fractional_part()
 fn quoted_symbol<I>(input: State<I>) -> ParseResult<Symbol, I>
 where I: Stream<Item=char> {
 	(char('\"'), many1(satisfy(|c| c != '\"' && c != '\r' && c != '\n')), char('\"'))
-		.map(|(_, symbol, _)| Symbol::Quoted(symbol))
+		.map(|(_, symbol, _)| Symbol {
+			value: symbol,
+			quoted: true
+		})
 		.parse_state(input)
 }
 
@@ -532,7 +541,10 @@ fn quoted_symbol_test() {
 	let result = parser(quoted_symbol)
 		.parse("\"MUTF2351\"")
 		.map(|x| x.0);
-	assert_eq!(result, Ok(Symbol::Quoted("MUTF2351".to_string())));
+	assert_eq!(result, Ok(Symbol {
+		value: "MUTF2351".to_string(),
+		quoted: true
+	}));
 }
 
 
@@ -541,7 +553,10 @@ fn quoted_symbol_test() {
 fn unquoted_symbol<I>(input: State<I>) -> ParseResult<Symbol, I>
 where I: Stream<Item=char> {
 	many1(satisfy(|c| "-0123456789; \"\t\r\n".chars().all(|s| s != c)))
-		.map(|symbol| Symbol::Unquoted(symbol))
+		.map(|symbol| Symbol {
+			value: symbol,
+			quoted: false
+		})
 		.parse_state(input)
 }
 
@@ -550,7 +565,10 @@ fn unquoted_symbol_just_symbol() {
 	let result = parser(unquoted_symbol)
 		.parse("$")
 		.map(|x| x.0);
-	assert_eq!(result, Ok(Symbol::Unquoted("$".to_string())));
+	assert_eq!(result, Ok(Symbol {
+		value: "$".to_string(),
+		quoted: false
+	}));
 }
 
 #[test]
@@ -558,7 +576,10 @@ fn unquoted_symbol_symbol_and_letters() {
 	let result = parser(unquoted_symbol)
 		.parse("US$")
 		.map(|x| x.0);
-	assert_eq!(result, Ok(Symbol::Unquoted("US$".to_string())));
+	assert_eq!(result, Ok(Symbol {
+		value: "US$".to_string(),
+		quoted: false
+	}));
 }
 
 #[test]
@@ -566,7 +587,10 @@ fn unquoted_symbol_just_letters() {
 	let result = parser(unquoted_symbol)
 		.parse("AAPL")
 		.map(|x| x.0);
-	assert_eq!(result, Ok(Symbol::Unquoted("AAPL".to_string())));
+	assert_eq!(result, Ok(Symbol {
+		value: "AAPL".to_string(),
+		quoted: false
+	}));
 }
 
 
@@ -584,7 +608,10 @@ fn symbol_unquoted_test() {
 	let result = parser(symbol)
 		.parse("$")
 		.map(|x| x.0);
-	assert_eq!(result, Ok(Symbol::Unquoted("$".to_string())));
+	assert_eq!(result, Ok(Symbol {
+		value: "$".to_string(),
+		quoted: false
+	}));
 }
 
 #[test]
@@ -592,7 +619,10 @@ fn symbol_quoted_test() {
 	let result = parser(symbol)
 		.parse("\"MUTF2351\"")
 		.map(|x| x.0);
-	assert_eq!(result, Ok(Symbol::Quoted("MUTF2351".to_string())));
+	assert_eq!(result, Ok(Symbol {
+		value: "MUTF2351".to_string(),
+		quoted: true
+	}));
 }
 
 
