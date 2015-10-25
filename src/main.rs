@@ -1,20 +1,17 @@
 extern crate combine;
 
-use combine::{alpha_num, char, choice, digit, many, many1, optional, parser,
+use combine::{alpha_num, char, digit, many, many1, optional, parser,
 	satisfy, sep_by1, Parser, ParserExt, ParseResult, ParseError};
 use combine::combinator::FnParser;
 use combine::primitives::{Consumed, State, Stream};
 
-#[derive(PartialEq, Debug)]
-enum WhitespaceIndicator {
-	Whitespace,
-	NoWhitespace
-}
 
 #[derive(PartialEq, Debug)]
-enum SymbolPosition {
-	Left,
-	Right
+enum AmountFormat {
+	SymbolLeftNoSpace,
+	SymbolLeftWithSpace,
+	SymbolRightNoSpace,
+	SymbolRightWithSpace
 }
 
 #[derive(PartialEq, Debug)]
@@ -46,6 +43,13 @@ struct Symbol {
 	quoted: bool
 }
 
+#[derive(PartialEq, Debug)]
+struct Amount {
+	value: String,
+	symbol: Symbol,
+	format: AmountFormat
+}
+
 
 
 /// Gets the current line number.
@@ -66,38 +70,37 @@ fn line_number_test() {
 
 
 /// Parses at least one whitespace character (space or tab).
-fn mandatory_whitespace<I>(input: State<I>) -> ParseResult<WhitespaceIndicator, I>
+fn whitespace<I>(input: State<I>) -> ParseResult<String, I>
 where I: Stream<Item=char> {
 	many1::<String, _>(satisfy(|c| c == ' ' || c == '\t'))
-		.map(|_| WhitespaceIndicator::Whitespace)
 		.parse_state(input)
 }
 
 #[test]
-fn empty_mandatory_whitespace_is_error()
+fn empty_whitespace_is_error()
 {
-	let result = parser(mandatory_whitespace)
+	let result = parser(whitespace)
 		.parse("")
 		.map(|x| x.0);
 	assert!(result.is_err());
 }
 
 #[test]
-fn mandatory_whitespace_space()
+fn whitespace_space()
 {
-	let result = parser(mandatory_whitespace)
+	let result = parser(whitespace)
 		.parse(" ")
 		.map(|x| x.0);
-	assert_eq!(result, Ok(WhitespaceIndicator::Whitespace));
+	assert_eq!(result, Ok(" ".to_string()));
 }
 
 #[test]
-fn mandatory_whitespace_tab()
+fn whitespace_tab()
 {
-	let result = parser(mandatory_whitespace)
+	let result = parser(whitespace)
 		.parse("\t")
 		.map(|x| x.0);
-	assert_eq!(result, Ok(WhitespaceIndicator::Whitespace));
+	assert_eq!(result, Ok("\t".to_string()));
 }
 
 
@@ -309,9 +312,9 @@ fn header<I>(input: State<I>) -> ParseResult<Header,I>
 where I: Stream<Item=char> {
 	(
 		parser(line_number),
-		parser(date).skip(parser(mandatory_whitespace)),
-		parser(status).skip(parser(mandatory_whitespace)),
-		optional(parser(code).skip(parser(mandatory_whitespace))),
+		parser(date).skip(parser(whitespace)),
+		parser(status).skip(parser(whitespace)),
+		optional(parser(code).skip(parser(whitespace))),
 		parser(payee),
 		optional(parser(comment))
 	)
@@ -622,6 +625,146 @@ fn symbol_quoted_test() {
 	assert_eq!(result, Ok(Symbol {
 		value: "MUTF2351".to_string(),
 		quoted: true
+	}));
+}
+
+
+
+/// Parses an amount in the format of symbol then quantity.
+fn amount_symbol_then_quantity<I>(input: State<I>) -> ParseResult<Amount, I>
+where I: Stream<Item=char> {
+	(parser(symbol), optional(parser(whitespace)), parser(quantity))
+		.map(|(symbol, opt_whitespace, quantity)| {
+			let format = match opt_whitespace {
+				Some(_) => AmountFormat::SymbolLeftWithSpace,
+				None => AmountFormat::SymbolLeftNoSpace
+			};
+			Amount {
+				value: quantity,
+				symbol: symbol,
+				format: format
+			}
+		})
+		.parse_state(input)
+}
+
+#[test]
+fn amount_symbol_then_quantity_no_whitespace() {
+	let result = parser(amount_symbol_then_quantity)
+		.parse("$13,245.00")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Amount {
+		value: "13245.00".to_string(),
+		symbol: Symbol {
+			value: "$".to_string(),
+			quoted: false
+		},
+		format: AmountFormat::SymbolLeftNoSpace
+	}));
+}
+
+#[test]
+fn amount_symbol_then_quantity_with_whitespace() {
+	let result = parser(amount_symbol_then_quantity)
+		.parse("$ 13,245.00")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Amount {
+		value: "13245.00".to_string(),
+		symbol: Symbol {
+			value: "$".to_string(),
+			quoted: false
+		},
+		format: AmountFormat::SymbolLeftWithSpace
+	}));
+}
+
+
+
+/// Parses an amount in the format of quantity then symbol.
+fn amount_quantity_then_symbol<I>(input: State<I>) -> ParseResult<Amount, I>
+where I: Stream<Item=char> {
+	(parser(quantity), optional(parser(whitespace)), parser(symbol))
+		.map(|(quantity, opt_whitespace, symbol)| {
+			let format = match opt_whitespace {
+				Some(_) => AmountFormat::SymbolRightWithSpace,
+				None => AmountFormat::SymbolRightNoSpace
+			};
+			Amount {
+				value: quantity,
+				symbol: symbol,
+				format: format
+			}
+		})
+		.parse_state(input)
+}
+
+#[test]
+fn amount_quantity_then_symbol_no_whitespace() {
+	let result = parser(amount_quantity_then_symbol)
+		.parse("13,245.463AAPL")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Amount {
+		value: "13245.463".to_string(),
+		symbol: Symbol {
+			value: "AAPL".to_string(),
+			quoted: false
+		},
+		format: AmountFormat::SymbolRightNoSpace
+	}));
+}
+
+#[test]
+fn amount_quantity_then_symbol_with_whitespace() {
+	let result = parser(amount_quantity_then_symbol)
+		.parse("13,245.463 \"MUTF2351\"")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Amount {
+		value: "13245.463".to_string(),
+		symbol: Symbol {
+			value: "MUTF2351".to_string(),
+			quoted: true
+		},
+		format: AmountFormat::SymbolRightWithSpace
+	}));
+}
+
+
+
+/// Parses an amount or an inferred amount
+fn amount<I>(input: State<I>) -> ParseResult<Amount, I>
+where I: Stream<Item=char> {
+	parser(amount_symbol_then_quantity)
+		.or(parser(amount_quantity_then_symbol))
+		.parse_state(input)
+}
+
+#[test]
+fn amount_test_symbol_then_quantity() {
+	let result = parser(amount)
+		.parse("$13,245.46")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Amount {
+		value: "13245.46".to_string(),
+		symbol: Symbol {
+			value: "$".to_string(),
+			quoted: false
+		},
+		format: AmountFormat::SymbolLeftNoSpace
+	}));
+}
+
+#[test]
+fn amount_test_quantity_then_symbol() {
+	let result = parser(amount)
+		.parse("13,245.463 \"MUTF2351\"")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Amount {
+		value: "13245.463".to_string(),
+		symbol: Symbol {
+			value: "MUTF2351".to_string(),
+			quoted: true
+		},
+		format: AmountFormat::SymbolRightWithSpace
 	}));
 }
 
