@@ -1,7 +1,7 @@
 extern crate combine;
 
-use combine::{alpha_num, char, digit, many, many1, optional, parser, satisfy,
-	sep_by1, Parser, ParserExt, ParseResult, ParseError};
+use combine::{alpha_num, char, choice, digit, many, many1, optional, parser,
+	satisfy, sep_by1, Parser, ParserExt, ParseResult, ParseError};
 use combine::combinator::FnParser;
 use combine::primitives::{Consumed, State, Stream};
 
@@ -444,6 +444,71 @@ fn account_single_level() {
 		.parse("Expenses")
 		.map(|x| x.0);
 	assert_eq!(result, Ok(vec!["Expenses".to_string()]));
+}
+
+
+
+/// Parses a numeric quantity
+fn quantity<I>(input: State<I>) -> ParseResult<String,I>
+where I: Stream<Item=char> {
+	(
+		optional(char('-'))
+			.map(|x| {
+				match x {
+					Some(_) => "-".to_string(),
+					None => "".to_string()
+				}
+			}),
+		satisfy(|c : char| c.is_digit(10)),
+		many::<String, _>(satisfy(|c : char| {
+			c.is_digit(10) || c == ',' || c == '.'
+		}))
+	)
+		.map(|(neg_sign, first_digit, digits_or_separators)| {
+			// TODO: need to return a numeric type here
+			let qty = format!("{}{}{}",
+				neg_sign,
+				first_digit,
+				digits_or_separators);
+			qty.replace(",", "")
+		})
+		.parse_state(input)
+}
+
+#[test]
+fn quantity_negative_no_fractional_part()
+{
+	let result = parser(quantity)
+		.parse("-1110")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("-1110".to_string()));
+}
+
+#[test]
+fn quantity_positive_no_fractional_part()
+{
+	let result = parser(quantity)
+		.parse("2,314")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("2314".to_string()));
+}
+
+#[test]
+fn quantity_negative_with_fractional_part()
+{
+	let result = parser(quantity)
+		.parse("-1,110.38")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("-1110.38".to_string()));
+}
+
+#[test]
+fn quantity_positive_with_fractional_part()
+{
+	let result = parser(quantity)
+		.parse("24521.793")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("24521.793".to_string()));
 }
 
 
