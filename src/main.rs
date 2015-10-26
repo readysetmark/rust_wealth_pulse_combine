@@ -1,7 +1,8 @@
 extern crate combine;
 
-use combine::{alpha_num, char, digit, many, many1, optional, parser,
-	satisfy, sep_by1, Parser, ParserExt, ParseResult, ParseError};
+use combine::{alpha_num, char, crlf, digit, many, many1, newline, optional,
+	parser, satisfy, sep_by, sep_by1, Parser, ParserExt, ParseResult,
+	ParseError};
 use combine::combinator::FnParser;
 use combine::primitives::{Consumed, State, Stream};
 
@@ -48,6 +49,13 @@ struct Amount {
 	value: String,
 	symbol: Symbol,
 	format: AmountFormat
+}
+
+#[derive(PartialEq, Debug)]
+struct Price {
+	date: Date,
+	symbol: Symbol,
+	amount: Amount
 }
 
 
@@ -101,6 +109,34 @@ fn whitespace_tab()
 		.parse("\t")
 		.map(|x| x.0);
 	assert_eq!(result, Ok("\t".to_string()));
+}
+
+
+
+/// Parses a Unix or Windows style line endings
+fn line_ending<I>(input: State<I>) -> ParseResult<String, I>
+where I: Stream<Item=char> {
+	crlf()
+		.map(|x: char| x.to_string())
+		.or(newline()
+			.map(|x: char| x.to_string()))
+		.parse_state(input)
+}
+
+#[test]
+fn line_ending_unix() {
+	let result = parser(line_ending)
+		.parse("\n")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("\n".to_string()));
+}
+
+#[test]
+fn line_ending_windows() {
+	let result = parser(line_ending)
+		.parse("\r\n")
+		.map(|x| x.0);
+	assert_eq!(result, Ok("\n".to_string()));
 }
 
 
@@ -766,6 +802,168 @@ fn amount_test_quantity_then_symbol() {
 		},
 		format: AmountFormat::SymbolRightWithSpace
 	}));
+}
+
+
+
+
+
+/// Parses a price entry
+fn price<I>(input: State<I>) -> ParseResult<Price, I>
+where I: Stream<Item=char> {
+	(
+		char('P').skip(parser(whitespace)),
+		parser(date).skip(parser(whitespace)),
+		parser(symbol).skip(parser(whitespace)),
+		parser(amount)
+	)
+		.map(|(_, date, symbol, amount)| Price {
+			date: date,
+			symbol: symbol,
+			amount: amount
+		})
+		.parse_state(input)
+}
+
+#[test]
+fn price_test() {
+	let result = parser(price)
+		.parse("P 2015-10-25 \"MUTF2351\" $5.42")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(Price {
+		date: Date {
+			year: 2015,
+			month: 10,
+			day: 25
+		},
+		symbol: Symbol {
+			value: "MUTF2351".to_string(),
+			quoted: true
+		},
+		amount: Amount {
+			value: "5.42".to_string(),
+			symbol: Symbol {
+				value: "$".to_string(),
+				quoted: false
+			},
+			format: AmountFormat::SymbolLeftNoSpace
+		}
+	}));
+}
+
+
+
+/// Parses a price DB file, which contains only price entries.
+fn price_db<I>(input: State<I>) -> ParseResult<Vec<Price>, I>
+where I: Stream<Item=char> {
+	sep_by(parser(price), parser(line_ending))
+		.parse_state(input)
+}
+
+#[test]
+fn price_db_no_records() {
+	let result = parser(price_db)
+		.parse("")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(vec![]));
+}
+
+#[test]
+fn price_db_one_record() {
+	let result = parser(price_db)
+		.parse("P 2015-10-25 \"MUTF2351\" $5.42")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(vec![
+		Price {
+			date: Date {
+				year: 2015,
+				month: 10,
+				day: 25
+			},
+			symbol: Symbol {
+				value: "MUTF2351".to_string(),
+				quoted: true
+			},
+			amount: Amount {
+				value: "5.42".to_string(),
+				symbol: Symbol {
+					value: "$".to_string(),
+					quoted: false
+				},
+				format: AmountFormat::SymbolLeftNoSpace
+			}
+		}
+	]));
+}
+
+#[test]
+fn price_db_multiple_records() {
+	let result = parser(price_db)
+		.parse("\
+			P 2015-10-23 \"MUTF2351\" $5.42\n\
+			P 2015-10-25 \"MUTF2351\" $5.98\n\
+			P 2015-10-25 AAPL $313.38\
+		")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(vec![
+		Price {
+			date: Date {
+				year: 2015,
+				month: 10,
+				day: 23
+			},
+			symbol: Symbol {
+				value: "MUTF2351".to_string(),
+				quoted: true
+			},
+			amount: Amount {
+				value: "5.42".to_string(),
+				symbol: Symbol {
+					value: "$".to_string(),
+					quoted: false
+				},
+				format: AmountFormat::SymbolLeftNoSpace
+			}
+		},
+		Price {
+			date: Date {
+				year: 2015,
+				month: 10,
+				day: 25
+			},
+			symbol: Symbol {
+				value: "MUTF2351".to_string(),
+				quoted: true
+			},
+			amount: Amount {
+				value: "5.98".to_string(),
+				symbol: Symbol {
+					value: "$".to_string(),
+					quoted: false
+				},
+				format: AmountFormat::SymbolLeftNoSpace
+			}
+		},
+		Price {
+			date: Date {
+				year: 2015,
+				month: 10,
+				day: 25
+			},
+			symbol: Symbol {
+				value: "AAPL".to_string(),
+				quoted: false
+			},
+			amount: Amount {
+				value: "313.38".to_string(),
+				symbol: Symbol {
+					value: "$".to_string(),
+					quoted: false
+				},
+				format: AmountFormat::SymbolLeftNoSpace
+			}
+		}
+	]));
 }
 
 
