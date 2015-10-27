@@ -1,10 +1,12 @@
 extern crate combine;
 
 use combine::{alpha_num, char, crlf, digit, many, many1, newline, optional,
-	parser, satisfy, sep_by, sep_by1, Parser, ParserExt, ParseResult,
+	parser, satisfy, sep_by1, sep_end_by, Parser, ParserExt, ParseResult,
 	ParseError};
 use combine::combinator::FnParser;
-use combine::primitives::{Consumed, State, Stream};
+use combine::primitives::{from_iter, Consumed, State, Stream};
+use std::fs::File;
+use std::io::Read;
 
 
 #[derive(PartialEq, Debug)]
@@ -856,7 +858,7 @@ fn price_test() {
 /// Parses a price DB file, which contains only price entries.
 fn price_db<I>(input: State<I>) -> ParseResult<Vec<Price>, I>
 where I: Stream<Item=char> {
-	sep_by(parser(price), parser(line_ending))
+	sep_end_by(parser(price), parser(line_ending))
 		.parse_state(input)
 }
 
@@ -902,7 +904,7 @@ fn price_db_multiple_records() {
 		.parse("\
 			P 2015-10-23 \"MUTF2351\" $5.42\n\
 			P 2015-10-25 \"MUTF2351\" $5.98\n\
-			P 2015-10-25 AAPL $313.38\
+			P 2015-10-25 AAPL $313.38\n\
 		")
 		.map(|x| x.0);
 	assert_eq!(result, Ok(vec![
@@ -969,15 +971,29 @@ fn price_db_multiple_records() {
 
 
 fn main() {
-	let result : Result<(String, &str), ParseError<&str>> = parser(payee).parse("");
+	let price_db_filepath = "/Users/mark/Nexus/Documents/finances/ledger/.pricedb";
+	let res = File::open(price_db_filepath);
 
-	println!("{:?}", result);
+	match res {
+		Ok(mut file) => {
+			let mut contents : String = String::new();
+			file.read_to_string(&mut contents);
 
-	match result {
-		Ok((date, remaining_input)) => {
-			println!("{:?}", date);
-			println!("{:?}", remaining_input)
+			let result : Result<(Vec<Price>, _), ParseError<_>> =
+				parser(price_db).parse(&contents[..]);
+
+			match result {
+				Ok((prices, _)) => {
+					let total_prices = prices.len();
+					for price in prices {
+						println!("{:?}", price);
+					}
+					println!("{} total prices", total_prices);
+				},
+				Err(err) => println!("{}", err)
+			}
 		},
-		Err(err) => println!("{}", err)
+		Err(err) => println!("Error opening .pricedb file: {}", err)
 	}
+	
 }
