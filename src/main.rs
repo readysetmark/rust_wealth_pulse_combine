@@ -54,10 +54,25 @@ struct Amount {
 }
 
 #[derive(PartialEq, Debug)]
+enum AmountSource {
+	Provided,
+	Inferred
+}
+
+#[derive(PartialEq, Debug)]
 struct Price {
 	date: Date,
 	symbol: Symbol,
 	amount: Amount
+}
+
+#[derive(PartialEq, Debug)]
+struct ParsedPosting {
+	line_number: i32,
+	account: String,
+	amount: Option<Amount>,
+	amount_source: AmountSource,
+	comment: Option<String>
 }
 
 
@@ -768,7 +783,7 @@ fn amount_quantity_then_symbol_with_whitespace() {
 
 
 
-/// Parses an amount or an inferred amount
+/// Parses an amount
 fn amount<I>(input: State<I>) -> ParseResult<Amount, I>
 where I: Stream<Item=char> {
 	parser(amount_symbol_then_quantity)
@@ -806,6 +821,49 @@ fn amount_test_quantity_then_symbol() {
 	}));
 }
 
+
+/// Parses an amount or an inferred amount
+fn amount_or_inferred<I>(input: State<I>) -> ParseResult<(AmountSource, Option<Amount>), I>
+where I: Stream<Item=char> {
+	optional(parser(amount))
+		.map(|opt_amount| {
+			let source = match opt_amount {
+				Some(_) => AmountSource::Provided,
+				None => AmountSource::Inferred
+			};
+			(source, opt_amount)
+		})
+		.parse_state(input)
+}
+
+#[test]
+fn amount_or_inferred_amount_provided() {
+	let result = parser(amount_or_inferred)
+		.parse("$13,245.46")
+		.map(|x| x.0);
+	assert_eq!(result, Ok((AmountSource::Provided, Some(Amount {
+		value: "13245.46".to_string(),
+		symbol: Symbol {
+			value: "$".to_string(),
+			quoted: false
+		},
+		format: AmountFormat::SymbolLeftNoSpace
+	}))));
+}
+
+#[test]
+fn amount_or_inferred_no_amount() {
+	let result = parser(amount_or_inferred)
+		.parse("")
+		.map(|x| x.0);
+	assert_eq!(result, Ok((AmountSource::Inferred, None)));
+}
+
+/// Parses a transaction posting
+// fn posting<I>(input: State<I>) -> ParseResult<Amount, I>
+// where I: Stream<Item=char> {
+
+// }
 
 
 
@@ -985,9 +1043,9 @@ fn main() {
 			match result {
 				Ok((prices, _)) => {
 					let total_prices = prices.len();
-					for price in prices {
-						println!("{:?}", price);
-					}
+					// for price in prices {
+					// 	println!("{:?}", price);
+					// }
 					println!("{} total prices", total_prices);
 				},
 				Err(err) => println!("{}", err)
