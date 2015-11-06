@@ -60,19 +60,20 @@ enum AmountSource {
 }
 
 #[derive(PartialEq, Debug)]
+struct ParsedPosting {
+	line_number: i32,
+	full_account: String,
+	sub_accounts: Vec<String>,
+	amount: Option<Amount>,
+	amount_source: AmountSource,
+	comment: Option<String>
+}
+
+#[derive(PartialEq, Debug)]
 struct Price {
 	date: Date,
 	symbol: Symbol,
 	amount: Amount
-}
-
-#[derive(PartialEq, Debug)]
-struct ParsedPosting {
-	line_number: i32,
-	account: String,
-	amount: Option<Amount>,
-	amount_source: AmountSource,
-	comment: Option<String>
 }
 
 
@@ -371,14 +372,14 @@ where I: Stream<Item=char> {
 		parser(payee),
 		optional(parser(comment))
 	)
-		.map(|(line_num, date, status, code, payee, comment)| {
+		.map(|(line_num, date, status, code, payee, opt_comment)| {
 			Header {
 				line_number: line_num,
 				date: date,
 				status: status,
 				code: code,
 				payee: payee,
-				comment: comment
+				comment: opt_comment
 			}
 		})
 		.parse_state(input)
@@ -859,12 +860,140 @@ fn amount_or_inferred_no_amount() {
 	assert_eq!(result, Ok((AmountSource::Inferred, None)));
 }
 
+
+
 /// Parses a transaction posting
-// fn posting<I>(input: State<I>) -> ParseResult<Amount, I>
-// where I: Stream<Item=char> {
+fn posting<I>(input: State<I>) -> ParseResult<ParsedPosting, I>
+where I: Stream<Item=char> {
+	(
+		parser(line_number),
+		parser(account).skip(optional(parser(whitespace))),
+		parser(amount_or_inferred).skip(optional(parser(whitespace))),
+		optional(parser(comment))
+	)
+		.map(|(line_num, account, (amount_source, opt_amount), opt_comment)| {
+			ParsedPosting {
+				line_number: line_num,
+				full_account: account.join(":"),
+				sub_accounts: account,
+				amount: opt_amount,
+				amount_source: amount_source,
+				comment: opt_comment
+			}
+		})
+		.parse_state(input)
+}
 
-// }
+#[test]
+fn posting_with_all_components() {
+	let result = parser(posting)
+		.parse("Assets:Savings\t$45.00\t;comment")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(ParsedPosting {
+		line_number: 1,
+		full_account: "Assets:Savings".to_string(),
+		sub_accounts: vec![
+			"Assets".to_string(),
+			"Savings".to_string()
+		],
+		amount: Some(Amount {
+			value: "45.00".to_string(),
+			symbol: Symbol {
+				value: "$".to_string(),
+				quoted: false
+			},
+			format: AmountFormat::SymbolLeftNoSpace
+		}),
+		amount_source: AmountSource::Provided,
+		comment: Some("comment".to_string())
+	}));
+}
 
+#[test]
+fn posting_with_all_components_commodity() {
+	let result = parser(posting)
+		.parse("Assets:Investments\t13.508 \"MUTF2351\"\t;comment")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(ParsedPosting {
+		line_number: 1,
+		full_account: "Assets:Investments".to_string(),
+		sub_accounts: vec![
+			"Assets".to_string(),
+			"Investments".to_string()
+		],
+		amount: Some(Amount {
+			value: "13.508".to_string(),
+			symbol: Symbol {
+				value: "MUTF2351".to_string(),
+				quoted: true
+			},
+			format: AmountFormat::SymbolRightWithSpace
+		}),
+		amount_source: AmountSource::Provided,
+		comment: Some("comment".to_string())
+	}));
+}
+
+#[test]
+fn posting_with_amount_no_comment() {
+	let result = parser(posting)
+		.parse("Assets:Savings\t$45.00")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(ParsedPosting {
+		line_number: 1,
+		full_account: "Assets:Savings".to_string(),
+		sub_accounts: vec![
+			"Assets".to_string(),
+			"Savings".to_string()
+		],
+		amount: Some(Amount {
+			value: "45.00".to_string(),
+			symbol: Symbol {
+				value: "$".to_string(),
+				quoted: false
+			},
+			format: AmountFormat::SymbolLeftNoSpace
+		}),
+		amount_source: AmountSource::Provided,
+		comment: None
+	}));
+}
+
+#[test]
+fn posting_inferred_amount_and_comment() {
+	let result = parser(posting)
+		.parse("Assets:Savings\t;comment")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(ParsedPosting {
+		line_number: 1,
+		full_account: "Assets:Savings".to_string(),
+		sub_accounts: vec![
+			"Assets".to_string(),
+			"Savings".to_string()
+		],
+		amount: None,
+		amount_source: AmountSource::Inferred,
+		comment: Some("comment".to_string())
+	}));
+}
+
+#[test]
+fn posting_inferred_amount_no_comment() {
+	let result = parser(posting)
+		.parse("Assets:Savings")
+		.map(|x| x.0);
+	assert_eq!(result, Ok(ParsedPosting {
+		line_number: 1,
+		full_account: "Assets:Savings".to_string(),
+		sub_accounts: vec![
+			"Assets".to_string(),
+			"Savings".to_string()
+		],
+		amount: None,
+		amount_source: AmountSource::Inferred,
+		comment: None
+	}));
+}
 
 
 
