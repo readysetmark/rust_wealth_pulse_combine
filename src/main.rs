@@ -1,8 +1,8 @@
 extern crate combine;
 
-use combine::{alpha_num, char, crlf, digit, many, many1, newline, optional,
-	parser, satisfy, sep_by1, sep_end_by, Parser, ParserExt, ParseResult,
-	ParseError};
+use combine::{alpha_num, between, char, crlf, digit, many, many1, newline,
+	optional, parser, satisfy, sep_by1, sep_end_by, Parser, ParserExt,
+	ParseResult, ParseError};
 use combine::combinator::FnParser;
 use combine::primitives::{from_iter, Consumed, State, Stream};
 use std::fs::File;
@@ -254,8 +254,7 @@ fn status_uncleared() {
 /// Parses transaction code. e.g. (cheque #802)
 fn code<I>(input: State<I>) -> ParseResult<String, I>
 where I: Stream<Item=char> {
-	(char('('), many(satisfy(|c| c != '\r' && c != '\n' && c != ')')), char(')'))
-		.map(|(_, code, _)| code)
+	between(char('('), char(')'), many(satisfy(|c| c != '\r' && c != '\n' && c != ')')))
 		.parse_state(input)
 }
 
@@ -994,6 +993,20 @@ fn posting_inferred_amount_no_comment() {
 		comment: None
 	}));
 }
+
+
+
+/// Parses a comment line
+//fn comment_line<I>(input: State<I>) -> ParseResult<
+
+
+/// Parses a complete transaction
+// fn transaction<I>(input: State<I>) -> ParseResult<(Header, Vec<ParsedPosting>), I>
+// where I: Stream<Item=char> {
+// 	(
+// 		parser(header).skip(parser(line_ending)),
+
+// }
 
 
 
